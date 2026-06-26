@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>서울과기대 공지사항 Q&A</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#21262d; --txt:#e6edf3;
+    --sub:#8b949e; --accent:#58a6ff; --green:#3fb950; --yellow:#d29922; --red:#f85149;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif}
+  body{background:var(--bg);color:var(--txt);padding:24px;min-height:100vh}
+  .wrap{max-width:820px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:6px}
+  h1{font-size:20px;font-weight:700}
+  h1 span{color:var(--accent)}
+  .desc{font-size:13px;color:var(--sub);margin-bottom:16px;line-height:1.6}
+  .status{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .badge{font-size:11px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);color:var(--sub)}
+  .badge.ok{color:var(--green);border-color:var(--green)}
+  .badge.no{color:var(--yellow);border-color:var(--yellow)}
+  .ctrl{display:flex;gap:8px;margin:16px 0}
+  .ctrl input[type=text]{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--txt);
+    padding:12px 14px;border-radius:10px;font-size:14px;outline:none}
+  .ctrl input[type=text]:focus{border-color:var(--accent)}
+  .btn{background:var(--accent);border:none;color:#0d1117;font-weight:700;padding:12px 18px;
+    border-radius:10px;cursor:pointer;font-size:14px;white-space:nowrap}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sec{background:var(--panel);color:var(--txt);border:1px solid var(--line);font-weight:600}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  .toolbar input[type=number]{width:64px;background:var(--panel);border:1px solid var(--line);
+    color:var(--txt);padding:7px 9px;border-radius:8px;font-size:13px}
+  .feed{display:flex;flex-direction:column;gap:14px}
+  .msg{padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel);font-size:14px;line-height:1.6}
+  .msg.q{background:#1c2433;border-color:#2d3b52}
+  .msg.q b{color:var(--accent)}
+  .msg .lead{color:var(--sub);font-size:12.5px;margin-bottom:10px}
+  .hit{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  .hit:first-of-type{border-top:none;padding-top:0;margin-top:0}
+  .hit .title{font-weight:700;font-size:14.5px;margin-bottom:4px}
+  .hit .meta{font-size:12px;color:var(--sub);margin-bottom:6px}
+  .hit .snippet{font-size:13px;color:#c9d1d9;line-height:1.65}
+  .hit a{color:var(--accent);text-decoration:none;font-size:12.5px}
+  .hit a:hover{text-decoration:underline}
+  .none{color:var(--yellow)}
+  .hint{font-size:12px;color:var(--sub);margin-top:6px}
+  .hint b{color:var(--txt)}
+  .spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
+    border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .examples{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .chip{font-size:12px;padding:5px 11px;border-radius:20px;border:1px solid var(--line);
+    background:var(--panel);color:var(--sub);cursor:pointer}
+  .chip:hover{border-color:var(--accent);color:var(--txt)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>서울과기대 <span>공지사항 Q&amp;A</span></h1>
+    <div class="status">
+      <span id="statusBadge" class="badge no">상태 확인 중…</span>
+    </div>
+  </header>
+  <p class="desc">
+    최근 1년 공지사항을 검색해 질문과 가장 관련 있는 게시물을 찾아줍니다.
+    근거가 없으면 솔직하게 “모르겠습니다”라고 답합니다.
+  </p>
+
+  <div class="toolbar">
+    <button id="buildBtn" class="btn sec">데이터 수집</button>
+    <input type="number" id="pages" value="5" min="1" max="30" title="수집할 페이지 수">
+    <span class="hint">페이지 (처음 한 번만, 시간이 걸려요)</span>
+  </div>
+
+  <div class="ctrl">
+    <input type="text" id="q" placeholder="예: 장학금 신청 언제까지야?" autocomplete="off">
+    <button id="askBtn" class="btn">질문</button>
+  </div>
+  <div class="examples">
+    <span class="chip">장학금 신청 기간</span>
+    <span class="chip">수강신청 일정</span>
+    <span class="chip">졸업 요건</span>
+    <span class="chip">기숙사 모집</span>
+  </div>
+
+  <div class="feed" id="feed" style="margin-top:22px"></div>
+</div>
+
+<script>
+const feed = document.getElementById('feed');
+const qInput = document.getElementById('q');
+const askBtn = document.getElementById('askBtn');
+const buildBtn = document.getElementById('buildBtn');
+const pagesInput = document.getElementById('pages');
+const statusBadge = document.getElementById('statusBadge');
+
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+async function refreshStatus(){
+  try{
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    if(d.ready){
+      statusBadge.className = 'badge ok';
+      statusBadge.textContent = `공지 ${d.count}건 · 수집일 ${d.built||'?'}`;
+    }else{
+      statusBadge.className = 'badge no';
+      statusBadge.textContent = '데이터 없음 — 먼저 수집하세요';
+    }
+  }catch(e){
+    statusBadge.className = 'badge no';
+    statusBadge.textContent = '서버 연결 실패';
+  }
+}
+
+function addQuestion(text){
+  const div = document.createElement('div');
+  div.className = 'msg q';
+  div.innerHTML = `<b>Q.</b> ${esc(text)}`;
+  feed.prepend(div);
+}
+
+function addAnswer(data){
+  const div = document.createElement('div');
+  div.className = 'msg';
+  let html = `<div class="lead">${esc(data.message||'')}</div>`;
+  if(data.hits && data.hits.length){
+    html += data.hits.map(h => `
+      <div class="hit">
+        <div class="title">${esc(h.title)}</div>
+        <div class="meta">${esc(h.date)} · 관련도 ${h.score}</div>
+        <div class="snippet">${esc(h.snippet)||'(본문 미리보기 없음)'}</div>
+        <a href="${esc(h.url)}" target="_blank" rel="noopener">공지 원문 보기 ↗</a>
+      </div>`).join('');
+  }else{
+    html = `<div class="none">${esc(data.message||'결과가 없습니다.')}</div>`;
+  }
+  div.innerHTML = html;
+  feed.prepend(div);
+}
+
+async function ask(){
+  const text = qInput.value.trim();
+  if(!text) return;
+  addQuestion(text);
+  qInput.value = '';
+  askBtn.disabled = true;
+  const loading = document.createElement('div');
+  loading.className = 'msg';
+  loading.innerHTML = '<span class="spinner"></span> 검색 중…';
+  feed.prepend(loading);
+  try{
+    const r = await fetch('/api/ask', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({question:text})
+    });
+    const d = await r.json();
+    loading.remove();
+    addAnswer(d);
+  }catch(e){
+    loading.remove();
+    addAnswer({message:'요청 실패: '+e, hits:[]});
+  }finally{
+    askBtn.disabled = false;
+  }
+}
+
+async function build(){
+  buildBtn.disabled = true;
+  const orig = buildBtn.textContent;
+  buildBtn.innerHTML = '<span class="spinner"></span> 수집 중…';
+  try{
+    const r = await fetch('/api/build', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({pages: parseInt(pagesInput.value)||5})
+    });
+    const d = await r.json();
+    if(d.ok){
+      addAnswer({message:`✅ 수집 완료 — 공지 ${d.count}건 저장 (${d.built})`, hits:[]});
+    }else{
+      addAnswer({message:'⚠️ '+(d.error||'수집 실패'), hits:[]});
+    }
+  }catch(e){
+    addAnswer({message:'수집 요청 실패: '+e, hits:[]});
+  }finally{
+    buildBtn.disabled = false;
+    buildBtn.textContent = orig;
+    refreshStatus();
+  }
+}
+
+askBtn.onclick = ask;
+buildBtn.onclick = build;
+qInput.addEventListener('keydown', e => { if(e.key==='Enter') ask(); });
+document.querySelectorAll('.chip').forEach(c =>
+  c.onclick = () => { qInput.value = c.textContent; ask(); });
+
+refreshStatus();
+</script>
+</body>
+</html>

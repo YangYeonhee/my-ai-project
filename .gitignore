@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+notice_cache.json
+.venv/
+venv/

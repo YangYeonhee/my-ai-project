@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KR 시총 TOP10 실시간 조회</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#21262d; --txt:#e6edf3;
+    --sub:#8b949e; --up:#f85149; --down:#3fb950; --flat:#8b949e; --accent:#58a6ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI','Apple SD Gothic Neo',sans-serif}
+  body{background:var(--bg);color:var(--txt);padding:24px;min-height:100vh}
+  .wrap{max-width:920px;margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+  h1{font-size:20px;font-weight:700}
+  h1 span{color:var(--accent)}
+  .meta{font-size:12px;color:var(--sub)}
+  .ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .ctrl input,.ctrl select{background:var(--panel);border:1px solid var(--line);color:var(--txt);
+    padding:8px 10px;border-radius:8px;font-size:13px}
+  .ctrl input[type=text]{width:280px}
+  .btn{background:var(--accent);border:none;color:#0d1117;font-weight:600;padding:8px 14px;
+    border-radius:8px;cursor:pointer;font-size:13px}
+  .btn.sec{background:var(--panel);color:var(--txt);border:1px solid var(--line)}
+  .badge{font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid var(--line);color:var(--sub)}
+  .badge.live{color:var(--down);border-color:var(--down)}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden}
+  th,td{padding:12px 14px;text-align:right;font-size:14px;border-bottom:1px solid var(--line)}
+  th{background:#1c2128;color:var(--sub);font-size:12px;font-weight:600;text-align:right}
+  th:nth-child(1),td:nth-child(1),th:nth-child(2),td:nth-child(2){text-align:left}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover{background:#1c2128}
+  .rank{color:var(--sub);font-variant-numeric:tabular-nums}
+  .name{font-weight:600}
+  .ticker{color:var(--sub);font-size:12px;margin-left:6px}
+  .num{font-variant-numeric:tabular-nums}
+  .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--flat)}
+  .flash-up{animation:fu .6s} .flash-down{animation:fd .6s}
+  @keyframes fu{0%{background:rgba(248,81,73,.25)}100%{background:transparent}}
+  @keyframes fd{0%{background:rgba(63,185,80,.25)}100%{background:transparent}}
+  footer{margin-top:14px;font-size:11px;color:var(--sub);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>국내 시가총액 <span>TOP 10</span> 실시간 조회</h1>
+    <div class="meta">갱신: <span id="ts">-</span> · <span id="mode" class="badge">DEMO</span></div>
+  </header>
+
+  <div class="ctrl">
+    <select id="interval">
+      <option value="3000">3초</option>
+      <option value="5000" selected>5초</option>
+      <option value="10000">10초</option>
+      <option value="30000">30초</option>
+    </select>
+    <input type="text" id="api" placeholder="실데이터 프록시 URL (비우면 DEMO 모드)">
+    <button class="btn" id="toggle">정지</button>
+    <button class="btn sec" id="once">새로고침</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>#</th><th>종목</th><th>기준가(원)</th><th>전일대비</th><th>등락률</th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <footer>
+    ※ DEMO 모드는 기준가 기반 난수 틱 시뮬레이션입니다. 실시간 시세는 CORS 정책상 브라우저 직접 호출이 불가하므로,
+    KIS Developers·KRX·증권사 OpenAPI를 호출하는 백엔드 프록시 URL을 입력하세요.
+    프록시는 <code>[{ticker,name,base,price,change,rate}]</code> JSON 배열을 반환해야 합니다.
+  </footer>
+</div>
+
+<script>
+// 2026.06 기준 코스피 시총 상위 종목(데모 시드). 실데이터 연동 시 프록시 응답으로 대체됨.
+const SEED = [
+  {ticker:'005930', name:'삼성전자',        base:90000},
+  {ticker:'000660', name:'SK하이닉스',      base:275100},
+  {ticker:'402340', name:'SK스퀘어',        base:103000},
+  {ticker:'005380', name:'현대차',          base:48450},
+  {ticker:'009150', name:'삼성전기',        base:100500},
+  {ticker:'373220', name:'LG에너지솔루션',  base:33800},
+  {ticker:'032830', name:'삼성생명',        base:108000},
+  {ticker:'028260', name:'삼성물산',        base:165000},
+  {ticker:'034020', name:'두산에너빌리티',  base:42000},
+  {ticker:'105560', name:'KB금융',          base:95000},
+];
+let state = SEED.map(s=>({...s, price:s.base, change:0, rate:0}));
+let timer=null, prev={};
+
+const fmt=n=>n.toLocaleString('ko-KR');
+const rowsEl=document.getElementById('rows');
+const tsEl=document.getElementById('ts');
+const modeEl=document.getElementById('mode');
+
+function demoTick(){
+  state = state.map(s=>{
+    const drift=(Math.random()-0.5)*0.012;          // ±1.2% 틱
+    const price=Math.max(1, Math.round(s.base*(1+ (s.rate/100) + drift)));
+    const change=price - s.base;
+    const rate=+( (change/s.base)*100 ).toFixed(2);
+    return {...s, price, change, rate};
+  });
+}
+
+async function realTick(url){
+  const r=await fetch(url,{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const data=await r.json();
+  state=data.slice(0,10).map(d=>({
+    ticker:d.ticker, name:d.name, base:d.base??d.price,
+    price:d.price, change:d.change??(d.price-(d.base??d.price)),
+    rate:d.rate??0
+  }));
+}
+
+function render(){
+  rowsEl.innerHTML='';
+  state.forEach((s,i)=>{
+    const cls=s.rate>0?'up':s.rate<0?'down':'flat';
+    const arrow=s.rate>0?'▲':s.rate<0?'▼':'-';
+    const tr=document.createElement('tr');
+    const pPrice=prev[s.ticker];
+    if(pPrice!=null && s.price>pPrice) tr.className='flash-up';
+    else if(pPrice!=null && s.price<pPrice) tr.className='flash-down';
+    tr.innerHTML=`
+      <td class="rank">${i+1}</td>
+      <td><span class="name">${s.name}</span><span class="ticker">${s.ticker}</span></td>
+      <td class="num">${fmt(s.price)}</td>
+      <td class="num ${cls}">${arrow} ${fmt(Math.abs(s.change))}</td>
+      <td class="num ${cls}">${s.rate>0?'+':''}${s.rate.toFixed(2)}%</td>`;
+    rowsEl.appendChild(tr);
+    prev[s.ticker]=s.price;
+  });
+  tsEl.textContent=new Date().toLocaleTimeString('ko-KR');
+}
+
+async function update(){
+  const url=document.getElementById('api').value.trim();
+  try{
+    if(url){ await realTick(url); modeEl.textContent='LIVE'; modeEl.className='badge live'; }
+    else   { demoTick();          modeEl.textContent='DEMO'; modeEl.className='badge'; }
+  }catch(e){
+    modeEl.textContent='ERR: '+e.message; modeEl.className='badge';
+    demoTick();
+  }
+  render();
+}
+
+function start(){
+  stop();
+  const ms=+document.getElementById('interval').value;
+  update();
+  timer=setInterval(update, ms);
+  document.getElementById('toggle').textContent='정지';
+}
+function stop(){ if(timer){clearInterval(timer);timer=null;} document.getElementById('toggle').textContent='시작'; }
+
+document.getElementById('toggle').onclick=()=>{ timer?stop():start(); };
+document.getElementById('once').onclick=update;
+document.getElementById('interval').onchange=()=>{ if(timer) start(); };
+start();
+</script>
+</body>
+</html>
